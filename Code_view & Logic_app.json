@@ -1,0 +1,214 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "actions": {
+            "Condition": {
+                "type": "If",
+                "expression": {
+                    "and": [
+                        {
+                            "equals": [
+                                "Is read",
+                                false
+                            ]
+                        }
+                    ]
+                },
+                "actions": {},
+                "else": {
+                    "actions": {
+                        "Move_email_(V2)": {
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "referenceName": "office365"
+                                    }
+                                },
+                                "method": "post",
+                                "path": "/v2/Mail/Move/@{encodeURIComponent(triggerBody()?['id'])}",
+                                "queries": {
+                                    "folderPath": "Id::AAMkAGZkMjE0Yjg1LWU1MDYtNGQ3Yi05NWMyLTllYzEwZjU5ZmI2MAAuAAAAAAA5omajKFTOS6xQ0l-T1iJfAQD8gnWShvYzQaWkWNWnFqCaAAAiPx7eAAA="
+                                }
+                            },
+                            "metadata": {
+                                "Id::AAMkAGZkMjE0Yjg1LWU1MDYtNGQ3Yi05NWMyLTllYzEwZjU5ZmI2MAAuAAAAAAA5omajKFTOS6xQ0l-T1iJfAQD8gnWShvYzQaWkWNWnFqCaAAAiPx7eAAA=": "Unreaded_emails"
+                            }
+                        },
+                        "Get_emails_(V3)": {
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "referenceName": "office365"
+                                    }
+                                },
+                                "method": "get",
+                                "path": "/v3/Mail",
+                                "queries": {
+                                    "importance": "Any",
+                                    "fetchOnlyWithAttachment": true,
+                                    "folderPath": "Id::AAMkAGZkMjE0Yjg1LWU1MDYtNGQ3Yi05NWMyLTllYzEwZjU5ZmI2MAAuAAAAAAA5omajKFTOS6xQ0l-T1iJfAQD8gnWShvYzQaWkWNWnFqCaAAAiPx7eAAA=",
+                                    "fetchOnlyUnread": true,
+                                    "fetchOnlyFlagged": false,
+                                    "includeAttachments": true,
+                                    "top": 1
+                                }
+                            },
+                            "runAfter": {
+                                "Move_email_(V2)": [
+                                    "SUCCEEDED"
+                                ]
+                            },
+                            "metadata": {
+                                "Id::AAMkAGZkMjE0Yjg1LWU1MDYtNGQ3Yi05NWMyLTllYzEwZjU5ZmI2MAAuAAAAAAA5omajKFTOS6xQ0l-T1iJfAQD8gnWShvYzQaWkWNWnFqCaAAAiPx7eAAA=": "Unreaded_emails"
+                            }
+                        },
+                        "For_each_1": {
+                            "type": "foreach",
+                            "foreach": "@body('Get_emails_(V3)')?['value']",
+                            "actions": {
+                                "For_each": {
+                                    "type": "foreach",
+                                    "foreach": "@item()?['attachments']",
+                                    "actions": {
+                                        "Create_blob_(V2)": {
+                                            "type": "ApiConnection",
+                                            "inputs": {
+                                                "host": {
+                                                    "connection": {
+                                                        "referenceName": "azureblob"
+                                                    }
+                                                },
+                                                "method": "post",
+                                                "body": "@base64ToBinary(item()?['contentBytes'])",
+                                                "headers": {
+                                                    "ReadFileMetadataFromServer": true
+                                                },
+                                                "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('AccountNameFromSettings'))}/files",
+                                                "queries": {
+                                                    "folderPath": "/unreadblobatt",
+                                                    "name": "@items('For_each')?['name']",
+                                                    "queryParametersSingleEncoded": true
+                                                }
+                                            },
+                                            "runtimeConfiguration": {
+                                                "contentTransfer": {
+                                                    "transferMode": "Chunked"
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "For_each_2": {
+                                    "type": "foreach",
+                                    "foreach": "@item()?['attachments']",
+                                    "actions": {
+                                        "Analyze_Invoice": {
+                                            "type": "ApiConnection",
+                                            "inputs": {
+                                                "host": {
+                                                    "connection": {
+                                                        "referenceName": "formrecognizer"
+                                                    }
+                                                },
+                                                "method": "post",
+                                                "body": "@base64ToBinary(items('For_each_2')?['contentBytes'])",
+                                                "path": "/v2.1/prebuilt/invoice/analyze",
+                                                "queries": {
+                                                    "includeTextDetails": true
+                                                }
+                                            }
+                                        },
+                                        "For_each_3": {
+                                            "type": "foreach",
+                                            "foreach": "@body('Analyze_Invoice')?['analyzeResult']?['documentResults']",
+                                            "actions": {
+                                                "Send_an_email_(V2)": {
+                                                    "type": "ApiConnection",
+                                                    "inputs": {
+                                                        "host": {
+                                                            "connection": {
+                                                                "referenceName": "office365"
+                                                            }
+                                                        },
+                                                        "method": "post",
+                                                        "body": {
+                                                            "To": "kollurusrikar96@gmail.com",
+                                                            "Subject": "Invoice Details",
+                                                            "Body": "<p class=\"editor-paragraph\">Invoice No :  @{item()?['fields']?['InvoiceId']?['text']}</p><p class=\"editor-paragraph\">Invoice Date : @{item()?['fields']?['InvoiceDate']?['valueDate']}</p><p class=\"editor-paragraph\">Customer Name :  @{item()?['fields']?['CustomerName']?['text']}</p><br>",
+                                                            "Importance": "Normal"
+                                                        },
+                                                        "path": "/v2/Mail"
+                                                    }
+                                                }
+                                            },
+                                            "runAfter": {
+                                                "Analyze_Invoice": [
+                                                    "SUCCEEDED"
+                                                ]
+                                            }
+                                        }
+                                    },
+                                    "runAfter": {
+                                        "For_each": [
+                                            "SUCCEEDED"
+                                        ]
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "Get_emails_(V3)": [
+                                    "SUCCEEDED"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "runAfter": {}
+            }
+        },
+        "contentVersion": "1.0.0.0",
+        "outputs": {},
+        "triggers": {
+            "When_a_new_email_arrives_(V3)": {
+                "type": "ApiConnectionNotification",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "referenceName": "office365"
+                        }
+                    },
+                    "fetch": {
+                        "pathTemplate": {
+                            "template": "/v3/Mail/OnNewEmail"
+                        },
+                        "method": "get",
+                        "queries": {
+                            "importance": "Any",
+                            "fetchOnlyWithAttachment": false,
+                            "includeAttachments": true,
+                            "folderPath": "Inbox"
+                        }
+                    },
+                    "subscribe": {
+                        "body": {
+                            "NotificationUrl": "@listCallbackUrl()"
+                        },
+                        "pathTemplate": {
+                            "template": "/GraphMailSubscriptionPoke/$subscriptions"
+                        },
+                        "method": "post",
+                        "queries": {
+                            "importance": "Any",
+                            "fetchOnlyWithAttachment": false,
+                            "folderPath": "Inbox"
+                        }
+                    }
+                },
+                "splitOn": "@triggerBody()?['value']"
+            }
+        }
+    },
+    "kind": "Stateful"
+}
